@@ -1,0 +1,170 @@
+# Local test topology. Mirrors the Railway service graph one-to-one: the same eight services, the same
+# names, one volume per stateful service, and every value Railway passes as a variable reference written out
+# here. Images are built from this repository; CI and the Railway template use the published GHCR images.
+#
+#   web        LLM Wiki web app              built here   public
+#   api        LLM Wiki API (hosted mode)    built here   public
+#   mcp        LLM Wiki MCP server           built here   public
+#   converter  PDF / Office extraction       built here
+#   storage    RustFS (S3-compatible)        wrapper      public   volume
+#   kong       Supabase API gateway          wrapper      public
+#   auth       Supabase Auth (GoTrue)        wrapper
+#   db         Supabase Postgres             wrapper               volume
+#
+# Every secret below is a fixed, public, local-test-only value. The Railway template generates real ones.
+# Browsers and containers must reach each public service at the same URL, so those services listen on the
+# same port inside as they are published on, under a *.localhost network alias that also resolves on the
+# host. Ports move with the LLMWIKI_TEST_* variables.
+name: llmwiki-railway-test
+
+x-wrapper-build: &wrapper-build
+  context: .
+  args:
+    WRAPPER_VERSION: ${WRAPPER_VERSION:-0.0.0-local}
+    VCS_REF: ${VCS_REF:-local}
+
+x-secrets:
+  postgres-password: &postgres-password localtestonlypostgrespassword0000000000000000
+  jwt-secret: &jwt-secret local-test-only-jwt-secret-000000000000000000000000000000
+  storage-access-key: &storage-access-key localtestonlyaccesskey
+  storage-secret-key: &storage-secret-key local-test-only-storage-secret-key-00000000
+  converter-secret: &converter-secret local-test-only-converter-secret-0000000000000
+
+services:
+  db:
+    build: { <<: *wrapper-build, dockerfile: images/db/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_DB_IMAGE:-llmwiki-railway-db:local}
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: *postgres-password
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  auth:
+    build: { <<: *wrapper-build, dockerfile: images/auth/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_AUTH_IMAGE:-llmwiki-railway-auth:local}
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      JWT_SECRET: *jwt-secret
+      LLMWIKI_SIGNING_KEY_SEED: "0000000000000000000000000000000000000000000000000000000000000001"
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:localtestonlypostgrespassword0000000000000000@db:5432/postgres
+      SUPABASE_PUBLIC_URL: http://kong.localhost:${LLMWIKI_TEST_GATEWAY_PORT:-18900}
+      APP_URL: http://localhost:${LLMWIKI_TEST_PORT:-13900}
+
+  kong:
+    build: { <<: *wrapper-build, dockerfile: images/kong/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_KONG_IMAGE:-llmwiki-railway-kong:local}
+    restart: unless-stopped
+    depends_on: [auth]
+    environment:
+      PORT: ${LLMWIKI_TEST_GATEWAY_PORT:-18900}
+      JWT_SECRET: *jwt-secret
+      AUTH_HOST: auth
+    ports: ["127.0.0.1:${LLMWIKI_TEST_GATEWAY_PORT:-18900}:${LLMWIKI_TEST_GATEWAY_PORT:-18900}"]
+    networks:
+      default:
+        aliases: [kong.localhost]
+
+  storage:
+    build: { <<: *wrapper-build, dockerfile: images/storage/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_STORAGE_IMAGE:-llmwiki-railway-storage:local}
+    restart: unless-stopped
+    environment:
+      PORT: ${LLMWIKI_TEST_FILES_PORT:-18903}
+      RUSTFS_ACCESS_KEY: *storage-access-key
+      RUSTFS_SECRET_KEY: *storage-secret-key
+    volumes:
+      - storage:/data
+    ports: ["127.0.0.1:${LLMWIKI_TEST_FILES_PORT:-18903}:${LLMWIKI_TEST_FILES_PORT:-18903}"]
+    networks:
+      default:
+        aliases: [files.localhost]
+
+  converter:
+    build: { <<: *wrapper-build, dockerfile: images/converter/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_CONVERTER_IMAGE:-llmwiki-railway-converter:local}
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      CONVERTER_SECRET: *converter-secret
+      S3_BUCKET: llmwiki-documents
+      LLMWIKI_S3_ENDPOINT: http://files.localhost:${LLMWIKI_TEST_FILES_PORT:-18903}
+
+  api:
+    build: { <<: *wrapper-build, dockerfile: images/api/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_API_IMAGE:-llmwiki-railway-api:local}
+    restart: unless-stopped
+    depends_on: [db, kong, storage, converter]
+    environment:
+      PORT: ${LLMWIKI_TEST_API_PORT:-18901}
+      JWT_SECRET: *jwt-secret
+      DATABASE_URL: postgresql://postgres:localtestonlypostgrespassword0000000000000000@db:5432/postgres
+      SUPABASE_URL: http://kong.localhost:${LLMWIKI_TEST_GATEWAY_PORT:-18900}
+      SUPABASE_INTERNAL_URL: http://kong:${LLMWIKI_TEST_GATEWAY_PORT:-18900}
+      APP_URL: http://localhost:${LLMWIKI_TEST_PORT:-13900}
+      API_URL: http://api.localhost:${LLMWIKI_TEST_API_PORT:-18901}
+      AWS_ACCESS_KEY_ID: *storage-access-key
+      AWS_SECRET_ACCESS_KEY: *storage-secret-key
+      AWS_ENDPOINT_URL_S3: http://files.localhost:${LLMWIKI_TEST_FILES_PORT:-18903}
+      S3_BUCKET: llmwiki-documents
+      CONVERTER_URL: http://converter:8000
+      CONVERTER_SECRET: *converter-secret
+      OWNER_EMAIL: owner@example.com
+      OWNER_PASSWORD: local-test-only-owner-password
+      LLMWIKI_SIGNUP_MODE: closed
+      LLMWIKI_ALLOWED_SIGNUPS: ${LLMWIKI_TEST_ALLOWED_SIGNUPS:-friend@example.com,@team.example.com}
+      LLMWIKI_RESET_OWNER_PASSWORD: ${LLMWIKI_TEST_RESET_OWNER:-}
+    ports: ["127.0.0.1:${LLMWIKI_TEST_API_PORT:-18901}:${LLMWIKI_TEST_API_PORT:-18901}"]
+    networks:
+      default:
+        aliases: [api.localhost]
+
+  mcp:
+    build: { <<: *wrapper-build, dockerfile: images/mcp/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_MCP_IMAGE:-llmwiki-railway-mcp:local}
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      PORT: ${LLMWIKI_TEST_MCP_PORT:-18902}
+      DATABASE_URL: postgresql://postgres:localtestonlypostgrespassword0000000000000000@db:5432/postgres
+      SUPABASE_URL: http://kong.localhost:${LLMWIKI_TEST_GATEWAY_PORT:-18900}
+      APP_URL: http://localhost:${LLMWIKI_TEST_PORT:-13900}
+      API_URL: http://api.localhost:${LLMWIKI_TEST_API_PORT:-18901}
+      MCP_URL: http://mcp.localhost:${LLMWIKI_TEST_MCP_PORT:-18902}/mcp
+      AWS_ACCESS_KEY_ID: *storage-access-key
+      AWS_SECRET_ACCESS_KEY: *storage-secret-key
+      AWS_ENDPOINT_URL_S3: http://storage:${LLMWIKI_TEST_FILES_PORT:-18903}
+      S3_BUCKET: llmwiki-documents
+    ports: ["127.0.0.1:${LLMWIKI_TEST_MCP_PORT:-18902}:${LLMWIKI_TEST_MCP_PORT:-18902}"]
+    networks:
+      default:
+        aliases: [mcp.localhost]
+
+  web:
+    build: { <<: *wrapper-build, dockerfile: images/web/Dockerfile }
+    image: ${LLMWIKI_RAILWAY_WEB_IMAGE:-llmwiki-railway-web:local}
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      PORT: "3000"
+      JWT_SECRET: *jwt-secret
+      NEXT_PUBLIC_SUPABASE_URL: http://kong.localhost:${LLMWIKI_TEST_GATEWAY_PORT:-18900}
+      NEXT_PUBLIC_API_URL: http://api.localhost:${LLMWIKI_TEST_API_PORT:-18901}
+      NEXT_PUBLIC_MCP_URL: http://mcp.localhost:${LLMWIKI_TEST_MCP_PORT:-18902}/mcp
+    ports: ["127.0.0.1:${LLMWIKI_TEST_PORT:-13900}:3000"]
+
+# IPv6 on, like Railway's private network: every service name resolves to an AAAA record as well, and
+# clients that prefer it expose any listener that is IPv4 only.
+networks:
+  default:
+    enable_ipv6: true
+
+volumes:
+  db:
+  storage:

@@ -1,0 +1,93 @@
+# Supabase API gateway routes for the LLM Wiki Railway template.
+#
+# Derived from supabase/supabase docker/volumes/api/kong.yml, trimmed to what LLM Wiki uses: Supabase
+# Auth, and nothing else. LLM Wiki's API and MCP server talk to Postgres and object storage directly and
+# call Supabase only to sign people in, so REST, GraphQL, Storage, Realtime, Studio, pg-meta, Edge
+# Functions, analytics and the dashboard basic-auth consumer are removed -- none of those services exist
+# in this template, and a route to a service that is not there is an open door waiting for someone to
+# add one.
+#
+# Added for Supabase Auth's OAuth 2.1 server, which Claude and other MCP clients sign in through. Those
+# clients know nothing about Supabase API keys, so exactly the endpoints they call are open, as on
+# Supabase's hosted platform: discovery metadata (at the RFC 8414 and OpenID path-insertion locations as
+# well as under /auth/v1), dynamic client registration, the authorization redirect, the token exchange
+# and userinfo. Each of them authenticates the caller itself (PKCE, client credentials, a bearer token);
+# the consent API the web app calls stays behind the key.
+#
+# Upstream's hostname (auth:9999) is replaced by $AUTH_HOST, which the entrypoint fills from the
+# environment, because on Railway the service answers at auth.railway.internal.
+
+_format_version: '2.1'
+_transform: true
+
+consumers:
+  - username: anon
+    keyauth_credentials:
+      - key: $SUPABASE_ANON_KEY
+  - username: service_role
+    keyauth_credentials:
+      - key: $SUPABASE_SERVICE_KEY
+
+acls:
+  - consumer: anon
+    group: anon
+  - consumer: service_role
+    group: admin
+
+services:
+  - name: auth-v1-open
+    url: http://$AUTH_HOST:9999/verify
+    routes: [{ name: auth-v1-open, strip_path: true, paths: [/auth/v1/verify] }]
+    plugins: [{ name: cors }]
+  - name: auth-v1-open-callback
+    url: http://$AUTH_HOST:9999/callback
+    routes: [{ name: auth-v1-open-callback, strip_path: true, paths: [/auth/v1/callback] }]
+    plugins: [{ name: cors }]
+  - name: auth-v1-open-authorize
+    url: http://$AUTH_HOST:9999/authorize
+    routes: [{ name: auth-v1-open-authorize, strip_path: true, paths: [/auth/v1/authorize] }]
+    plugins: [{ name: cors }]
+  - name: auth-v1-open-well-known
+    url: http://$AUTH_HOST:9999/.well-known/
+    routes: [{ name: auth-v1-open-well-known, strip_path: true, paths: [/auth/v1/.well-known/] }]
+    plugins: [{ name: cors }]
+
+  # OAuth 2.1 server (MCP clients)
+  - name: oauth-metadata-rfc8414
+    url: http://$AUTH_HOST:9999/.well-known/oauth-authorization-server
+    routes: [{ name: oauth-metadata-rfc8414, strip_path: true, paths: ["/.well-known/oauth-authorization-server/auth/v1$"] }]
+    plugins: [{ name: cors }]
+  - name: oauth-metadata-oidc
+    url: http://$AUTH_HOST:9999/.well-known/openid-configuration
+    routes: [{ name: oauth-metadata-oidc, strip_path: true, paths: ["/.well-known/openid-configuration/auth/v1$"] }]
+    plugins: [{ name: cors }]
+  - name: oauth-register
+    url: http://$AUTH_HOST:9999/oauth/clients/register
+    routes: [{ name: oauth-register, strip_path: true, methods: [POST, OPTIONS], paths: ["/auth/v1/oauth/clients/register$"] }]
+    plugins: [{ name: cors }]
+  - name: oauth-authorize
+    url: http://$AUTH_HOST:9999/oauth/authorize
+    routes: [{ name: oauth-authorize, strip_path: true, methods: [GET], paths: ["/auth/v1/oauth/authorize$"] }]
+    plugins: [{ name: cors }]
+  - name: oauth-token
+    url: http://$AUTH_HOST:9999/oauth/token
+    routes: [{ name: oauth-token, strip_path: true, methods: [POST, OPTIONS], paths: ["/auth/v1/oauth/token$"] }]
+    plugins: [{ name: cors }]
+  - name: oauth-userinfo
+    url: http://$AUTH_HOST:9999/oauth/userinfo
+    routes: [{ name: oauth-userinfo, strip_path: true, methods: [GET, POST, OPTIONS], paths: ["/auth/v1/oauth/userinfo$"] }]
+    plugins: [{ name: cors }]
+
+  - name: auth-v1
+    url: http://$AUTH_HOST:9999/
+    routes: [{ name: auth-v1-all, strip_path: true, paths: [/auth/v1/] }]
+    plugins:
+      - name: cors
+      - name: key-auth
+        config: { hide_credentials: false }
+      - name: request-transformer
+        config:
+          add: { headers: ["Authorization: $LUA_AUTH_EXPR"] }
+          replace: { headers: ["Authorization: $LUA_AUTH_EXPR"] }
+      - name: acl
+        config: { hide_groups_header: true, allow: [admin, anon] }

@@ -1,0 +1,27 @@
+# secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# local test output
+/test-output/
+/.test-volumes/
+*.log
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# node (this repo has no node project; guard against accidental installs)
+node_modules/
+
+# Railway CLI link metadata
+.railway/
+
+# python bytecode
+__pycache__/
+*.pyc

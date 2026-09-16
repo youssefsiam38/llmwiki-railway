@@ -1,0 +1,7 @@
+.git
+test-output
+.github
+*.md
+assets
+marketplace
+tests
