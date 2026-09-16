@@ -105,13 +105,18 @@ if [ -s "$TEST_TMP/owner-token" ]; then
   python3 "$REPO_ROOT/tests/make-pdf.py" "$TEST_TMP/probe.pdf" "Railway probe page one pdfmarker$stamp" "Second page"
   DOC_ID=$(tus_upload "$TEST_TMP/owner-token" "$KB_ID" "$TEST_TMP/probe.pdf" "probe-$stamp.pdf" || true)
   [ -n "$DOC_ID" ] && pass "the upload completes (tus)" || fail "the upload did not complete"
-  assert_eq "the converter extracts it" "ready" "$(wait_document "$TEST_TMP/owner-token" "$DOC_ID" 600)"
-  signed=$(api_as "$TEST_TMP/owner-token" GET "/v1/documents/$DOC_ID/url" | jq -r '.url // empty')
-  assert_contains "the viewer gets a signed link on the storage domain" "^$FILES_URL/llmwiki-documents/" "$signed"
-  assert_eq "the browser can load it" "%PDF" "$(curl -s --max-time 30 "$signed" | head -c 4)"
-  assert_eq "not without the signature" "403" "$(http_code "${signed%%\?*}")"
-  cors=$(curl -s -D - -o /dev/null --max-time 30 "$signed" -H "Origin: $APP_URL" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
-  assert_contains "storage lets the web app read it (PDF viewer)" "access-control-allow-origin: $(tr '[:upper:]' '[:lower:]' <<<"$APP_URL")" "$cors"
+  signed=""
+  if [ -n "$DOC_ID" ]; then
+    assert_eq "the converter extracts it" "ready" "$(wait_document "$TEST_TMP/owner-token" "$DOC_ID" 600)"
+    signed=$(api_as "$TEST_TMP/owner-token" GET "/v1/documents/$DOC_ID/url" | jq -r '.url // empty' 2>/dev/null || true)
+    assert_contains "the viewer gets a signed link on the storage domain" "^$FILES_URL/llmwiki-documents/" "$signed"
+  fi
+  if [ -n "$signed" ]; then
+    assert_eq "the browser can load it" "%PDF" "$(curl -s --max-time 30 "$signed" | head -c 4 || true)"
+    assert_eq "not without the signature" "403" "$(http_code "${signed%%\?*}")"
+    cors=$(curl -s -D - -o /dev/null --max-time 30 "$signed" -H "Origin: $APP_URL" | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true)
+    assert_contains "storage lets the web app read it (PDF viewer)" "access-control-allow-origin: $(tr '[:upper:]' '[:lower:]' <<<"$APP_URL")" "$cors"
+  fi
 
   section "Claude connects over MCP with OAuth"
   rc=0; oauth_connect "$TEST_TMP/owner-token" "Railway probe client $stamp" "$TEST_TMP/mcp-token" || rc=$?

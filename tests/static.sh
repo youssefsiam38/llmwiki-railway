@@ -42,8 +42,9 @@ assert_eq "published ports bind to loopback" "127.0.0.1 127.0.0.1 127.0.0.1 127.
   "$(jq -r '[.services[] | .ports[]? | .host_ip] | join(" ")' <<<"$cfg")"
 assert_eq "the test network has IPv6, like Railway's" "true" "$(jq -r '.networks.default.enable_ipv6' <<<"$cfg")"
 assert_eq "the converter is private" "null" "$(jq -r '.services.converter.ports' <<<"$cfg")"
-assert_eq "the API signs storage links with the public storage URL" "$(jq -r '.services.converter.environment.LLMWIKI_S3_ENDPOINT' <<<"$cfg")" \
-  "$(jq -r '.services.api.environment.AWS_ENDPOINT_URL_S3' <<<"$cfg")"
+assert_eq "the API signs storage links with the public storage URL the converter accepts" "$(jq -r '.services.converter.environment.LLMWIKI_S3_ENDPOINT' <<<"$cfg")" \
+  "$(jq -r '.services.api.environment.LLMWIKI_S3_PUBLIC_ENDPOINT' <<<"$cfg")"
+assert_eq "and stores files over the private network" "http://storage:18903" "$(jq -r '.services.api.environment.AWS_ENDPOINT_URL_S3' <<<"$cfg")"
 
 section "images are pinned"
 for df in images/*/Dockerfile; do
@@ -133,6 +134,12 @@ auth_ep=$(cat images/auth/entrypoint.sh)
 assert_contains "the issuer is derived, not typed" 'GOTRUE_JWT_ISSUER="${SUPABASE_PUBLIC_URL}/auth/v1"' "$auth_ep"
 assert_contains "Supabase's example JWT secret is refused" 'your-super-secret-jwt-token-with-at-least-32-characters-long' "$auth_ep"
 assert_contains "the seed is dropped before Supabase Auth starts" 'unset JWT_SECRET LLMWIKI_SIGNING_KEY_SEED' "$auth_ep"
+
+section "the API's signing patch"
+presign=$(cat images/api/patch_s3_presign.py)
+assert_contains "the patch fails the build unless each method matches exactly once" 'source.count(old) != 1' "$presign"
+assert_contains "only the two signing methods change" 'endpoint_url=os.environ.get("LLMWIKI_S3_PUBLIC_ENDPOINT") or None' "$presign"
+assert_contains "the image build checks the patch is in place" "grep -q 'llmwiki-railway: links are for browsers' /app/services/s3.py" "$(cat images/api/Dockerfile)"
 
 section "the converter patch"
 patch=$(cat images/converter/patch_s3_endpoint.py)

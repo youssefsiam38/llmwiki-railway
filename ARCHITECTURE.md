@@ -6,7 +6,7 @@
  browser ──https──► web ─────────────── (static app; everything below is called from the browser)
     │
     ├──https──► api ──────► db (Postgres, pgroonga)
-    │            │  ├─────► storage (S3, signed URLs)  ◄──https── browser (document viewer)
+    │            │  ├─private► storage (S3)  ◄──https, signed URLs── browser (document viewer)
     │            │  └─────► converter ──https──► storage (signed GET)
     │            └──private─► kong ─► auth                        (owner account at start-up)
     │
@@ -24,7 +24,7 @@
 | `api` | `[::]:8000`, IPv4 too | browsers, the MCP server (public) |
 | `mcp` | `0.0.0.0:8080` | MCP clients (public) |
 | `kong` | `[::]:8000` and `0.0.0.0:8000` | browsers, MCP clients, the API and MCP server's JWKS fetch (public); the API's owner step (private) |
-| `storage` | `[::]:9000` | browsers and the converter through signed URLs, the API (public); the MCP server (private) |
+| `storage` | `[::]:9000` | browsers and the converter through signed URLs (public); the API and MCP server (private) |
 | `converter` | `[::]:8000`, IPv4 too | the API (private) |
 | `auth` | `[::]:9999` | Kong (private) |
 | `db` | `*:5432` | auth, api, mcp (private) |
@@ -117,10 +117,12 @@ trigger then creates the `public.users` row with the instance's limits.
 
 ## Storage
 
-The API and the converter use one S3 endpoint, the public storage domain: the API signs document links for
-the browser with it, and SigV4 signatures cover the host, so the converter must fetch the same URL. The MCP
-server only reads and writes objects and uses the private address. Path-style addressing
-(`AWS_CONFIG_FILE`) and `when_required` checksums keep botocore compatible with RustFS.
+The API and the MCP server read and write objects over the private network (`AWS_ENDPOINT_URL_S3`). Signed
+links are different: browsers and the converter fetch them, and SigV4 signatures cover the host, so the API
+signs them with the public storage domain (`LLMWIKI_S3_PUBLIC_ENDPOINT`, `images/api/patch_s3_presign.py`).
+The split is required, not just cheaper: Railway's edge does not complete botocore's uploads, which send
+`Expect: 100-continue`. Path-style addressing (`AWS_CONFIG_FILE`) and `when_required` checksums keep botocore
+compatible with RustFS.
 
 The converter's download allowlist (upstream: Amazon S3 only) is extended by `patch_s3_endpoint.py`: with
 `LLMWIKI_S3_ENDPOINT` set, a URL must have that exact scheme, host and port, no credentials, and a path

@@ -20,7 +20,7 @@ The source is fetched by commit id, so git verifies the content.
 
 | Component | Change | Why |
 |---|---|---|
-| `api` | None to the code. The image adds `railway_setup.py` (migrations, signup gate, limits, bucket, owner), `gate.sql`, `lib/serve.py` and an entrypoint; runs as an unprivileged user. | Upstream relies on the Supabase CLI and hand-made cloud resources. |
+| `api` | `S3Service.generate_presigned_get/put` sign with `LLMWIKI_S3_PUBLIC_ENDPOINT` while every other storage call uses the private address (`images/api/patch_s3_presign.py`; the build fails if the methods change upstream). The image adds `railway_setup.py` (migrations, signup gate, limits, bucket, owner), `gate.sql`, `lib/serve.py` and an entrypoint; runs as an unprivileged user. | Railway's edge does not complete S3 uploads; upstream relies on the Supabase CLI and hand-made cloud resources. |
 | `mcp` | None. Entrypoint validation only; runs as an unprivileged user. | |
 | `converter` | `_validate_s3_url` accepts the template's own storage origin and bucket when `LLMWIKI_S3_ENDPOINT` is set (`images/converter/patch_s3_endpoint.py`; the build fails if the function changes upstream). Dependencies install from upstream's `requirements.lock` with hashes rather than the unpinned `requirements.txt`. Served on a dual-stack socket. | Upstream accepts Amazon S3 URLs only. |
 | `web` | None to the code. `package.json` and `package-lock.json` are upstream's with the pins below raised; the build checks upstream's own manifest hashes first. Built with placeholder public URLs, filled at start. | Published advisories; one-click deploys cannot rebuild per deployment. |

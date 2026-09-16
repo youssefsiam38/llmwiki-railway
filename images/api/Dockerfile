@@ -5,7 +5,8 @@
 # Upstream publishes no images; its hosted service builds api/Dockerfile from the repository. This image
 # does the same from a pinned commit -- the hash-locked dependencies, the pip-audit gate, the parser
 # removed from the API process -- and adds the start-up steps a one-click deployment needs in place of the
-# Supabase CLI and a hand-made bucket (railway_setup.py). LLM Wiki's code is unchanged.
+# Supabase CLI and a hand-made bucket (railway_setup.py). One change to LLM Wiki's code: signed storage
+# links use the public storage address while the API itself uses the private one (patch_s3_presign.py).
 ARG PYTHON_IMAGE=docker.io/library/python:3.11-slim-bookworm@sha256:528257d48c1da0dcecc2e725d1ae34498d60c965f1241e39cd6a85a8859bdf84
 ARG LLMWIKI_COMMIT=aac3e6493306b7fff3b09cb181ca93918e93d0e6
 ARG UV_VERSION=0.12.15
@@ -20,6 +21,8 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-
     && git -C /src checkout -q FETCH_HEAD \
     && test "$(git -C /src rev-parse HEAD)" = "${LLMWIKI_COMMIT}" \
     && rm -rf /src/.git
+COPY images/api/patch_s3_presign.py /tmp/patch_s3_presign.py
+RUN python /tmp/patch_s3_presign.py /src/api/services/s3.py
 
 # Upstream's dependency gate, kept: the image is not built while a locked dependency has a known advisory.
 FROM ${PYTHON_IMAGE} AS audit
@@ -56,6 +59,7 @@ COPY licenses/ /usr/share/licenses/llmwiki-railway/
 
 # The app must import as built (a missing module fails here, not at deploy time).
 RUN cd /app && python -c "import main" \
+    && grep -q 'llmwiki-railway: links are for browsers' /app/services/s3.py \
     && ls /opt/llmwiki-railway/migrations/001_initial.sql >/dev/null \
     && python -m py_compile /opt/llmwiki-railway/railway_setup.py \
     && useradd --system --uid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin llmwiki \

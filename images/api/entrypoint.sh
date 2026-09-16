@@ -7,7 +7,7 @@ fail() { printf '[llmwiki-api] FATAL: %s\n' "$*" >&2; exit 1; }
 
 # A Railway reference such as ${{kong.RAILWAY_PRIVATE_DOMAIN}} is empty until that service has a
 # deployment, which leaves `http://:8000`. Say so, rather than retry an address that cannot exist.
-for name in DATABASE_URL SUPABASE_URL SUPABASE_INTERNAL_URL APP_URL API_URL AWS_ENDPOINT_URL_S3 CONVERTER_URL; do
+for name in DATABASE_URL SUPABASE_URL SUPABASE_INTERNAL_URL APP_URL API_URL AWS_ENDPOINT_URL_S3 LLMWIKI_S3_PUBLIC_ENDPOINT CONVERTER_URL; do
   eval "v=\${$name:-}"
   # shellcheck disable=SC2154  # v is assigned by the eval above
   case "$v" in

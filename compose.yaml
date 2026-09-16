@@ -111,7 +111,8 @@ services:
       API_URL: http://api.localhost:${LLMWIKI_TEST_API_PORT:-18901}
       AWS_ACCESS_KEY_ID: *storage-access-key
       AWS_SECRET_ACCESS_KEY: *storage-secret-key
-      AWS_ENDPOINT_URL_S3: http://files.localhost:${LLMWIKI_TEST_FILES_PORT:-18903}
+      AWS_ENDPOINT_URL_S3: http://storage:${LLMWIKI_TEST_FILES_PORT:-18903}
+      LLMWIKI_S3_PUBLIC_ENDPOINT: http://files.localhost:${LLMWIKI_TEST_FILES_PORT:-18903}
       S3_BUCKET: llmwiki-documents
       CONVERTER_URL: http://converter:8000
       CONVERTER_SECRET: *converter-secret

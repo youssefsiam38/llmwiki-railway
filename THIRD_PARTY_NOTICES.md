@@ -8,7 +8,8 @@ shipped inside every wrapper image at `/usr/share/licenses/llmwiki-railway/`.
 The `api`, `mcp`, `converter` and `web` images contain LLM Wiki, built from
 https://github.com/lucasastorian/llmwiki at the commit in `UPSTREAM.md`, under the Apache License 2.0
 (`licenses/LLMWIKI-LICENSE`). The changes are listed in `UPSTREAM.md`: the converter's download allowlist
-(`images/converter/patch_s3_endpoint.py`) and raised dependency versions for the web build. This
+(`images/converter/patch_s3_endpoint.py`), the API's signing endpoint (`images/api/patch_s3_presign.py`) and
+raised dependency versions for the web build. This
 repository's own files (Dockerfiles, scripts, tests, docs) are MIT.
 
 ## Copied into the images

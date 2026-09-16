@@ -65,7 +65,8 @@ The API, MCP server and web app are built from a pinned upstream commit with ups
 dependencies and its pip-audit gate; the web build raises the dependency pins that carry published
 advisories, including a critical Next.js one. Supabase Auth signs sessions with an ES256 key derived from a
 generated seed, which LLM Wiki's API and MCP server require and Railway cannot generate directly. The
-converter's download allowlist is narrowed to the template's own storage bucket. Every service refuses to
+converter's download allowlist is narrowed to the template's own storage bucket, and the API stores files
+over the private network while signing browser links with the public storage domain. Every service refuses to
 start on missing, short or published example secrets.
 
 The bundle is tested as a whole in CI and on a live deployment of this template: sign-in, the signup gate,
